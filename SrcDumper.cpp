@@ -1,12 +1,6 @@
 #include "stdafx.h"
 #include "SrcDumper.h"
 
-void Netvar::Get(ProcEx proc, SigData dwGetAllClasses)
-{
-	//https://github.com/ValveSoftware/source-sdk-2013/blob/0d8dceea4310fde5706b3ce1c70609d72a38efdf/mp/src/public/client_class.h
-	//https://github.com/ValveSoftware/source-sdk-2013/blob/0d8dceea4310fde5706b3ce1c70609d72a38efdf/mp/src/public/client_class.cpp
-}
-
 SrcDumper::SrcDumper() {}
 
 SrcDumper::SrcDumper(jsonxx::Object* json)
@@ -40,64 +34,108 @@ HMODULE SrcDumper::LoadClientDLL(ProcEx proc)
 	p = p.parent_path().parent_path().parent_path() / "bin";
 	AddDllDirectory(p.wstring().c_str());
 
-	HMODULE hMod = LoadLibraryEx(mod.modEntry.szExePath, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-	return hMod;
+	return LoadLibraryEx(mod.modEntry.szExePath, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 }
 
+//good but missing 11 netvars
 /*
-fails to find internally and externally:
-DT_BasePlayer - m_aimPunchAngle
-DT_BasePlayer - m_aimPunchAngleVel
-DT_BaseAttributableItem - m_iAccountID
-DT_BaseAttributableItem - m_iEntityQuality
-DT_BaseCombatWeapon - m_iItemDefinitionIndex
-DT_BaseAttributableItem - m_iItemIDHigh
-DT_BaseAttributableItem - m_szCustomName
-DT_BasePlayer - m_viewPunchAngle
-DT_CSGameRulesProxy - cs_gamerules_data
-DT_CSGameRulesProxy - m_SurvivalGameRuleDecisionTypes
-*/
-
 intptr_t SrcDumper::GetNetVarOffset(const char* tableName, const char* netvarName, ClientClass* clientClass)
 {
 	ClientClass* currNode = clientClass;
+
 	while (true)
 	{
-		if (!std::strstr(currNode->m_pRecvTable->m_pNetTableName, "DT_"))
-		{
-			//continue;
-		}
-
 		for (int i = 0; i < currNode->m_pRecvTable->m_nProps; i++)
 		{
-			if (!_stricmp(currNode->m_pRecvTable->m_pProps[i].m_pVarName, netvarName))
+			if (!_stricmp(currNode->m_pRecvTable->m_pNetTableName, tableName))
 			{
-				if (currNode->m_pRecvTable->m_pProps[i].m_Offset != 0)
+				if (!_stricmp(currNode->m_pRecvTable->m_pProps[i].m_pVarName, netvarName))
+				{
 					return currNode->m_pRecvTable->m_pProps[i].m_Offset;
+				}
 			}
 
 			if (currNode->m_pRecvTable->m_pProps[i].m_pDataTable)
 			{
-				if (!strstr(currNode->m_pRecvTable->m_pProps[i].m_pDataTable->m_pNetTableName, "DT_"))
-				{
-					//continue;
-				}
 
 				for (int j = 0; j < currNode->m_pRecvTable->m_pProps[i].m_pDataTable->m_nProps; j++)
 				{
 					if (!_stricmp(currNode->m_pRecvTable->m_pProps[i].m_pDataTable->m_pProps[j].m_pVarName, netvarName))
 					{
-						if (currNode->m_pRecvTable->m_pProps[i].m_pDataTable->m_pProps[j].m_Offset != 0)
-							return currNode->m_pRecvTable->m_pProps[i].m_pDataTable->m_pProps[j].m_Offset;
+						return currNode->m_pRecvTable->m_pProps[i].m_pDataTable->m_pProps[j].m_Offset;
+					}
+
+					if (currNode->m_pRecvTable->m_pProps[i].m_pDataTable->m_pProps[j].m_pDataTable)
+					{
+						for (int k = 0; k < currNode->m_pRecvTable->m_pProps[i].m_pDataTable->m_pProps[j].m_pDataTable->m_nProps; k++)
+						{
+							if (!_stricmp(currNode->m_pRecvTable->m_pProps[i].m_pDataTable->m_pProps[j].m_pDataTable->m_pProps[k].m_pVarName, netvarName))
+							{
+								return currNode->m_pRecvTable->m_pProps[i].m_pDataTable->m_pProps[j].m_pDataTable->m_pProps[k].m_Offset;
+							}
+						}
 					}
 				}
 			}
 		}
+
 		if (!currNode->m_pNext) break;
 		currNode = currNode->m_pNext;
 	}
 	return 0;
 }
+*/
+
+ 
+//recursion misses the same 11 netvars as the above function
+
+intptr_t GetOffset(RecvTable* table, const char* tableName, const char* netvarName)
+{
+	for (int i = 0; i < table->m_nProps; i++)
+	{
+		RecvProp prop = table->m_pProps[i];
+
+		//if (!_stricmp(table->m_pNetTableName, tableName) && !_stricmp(prop.m_pVarName, netvarName))
+		if (!_stricmp(prop.m_pVarName, netvarName))
+		{
+			return prop.m_Offset;
+		}
+
+		if (prop.m_pDataTable)
+		{
+			intptr_t offset = GetOffset(prop.m_pDataTable, tableName, netvarName);
+			if (offset)
+			{
+				return offset;
+			}
+		}
+	}
+	return 0;
+}
+
+intptr_t SrcDumper::GetNetVarOffset(const char* tableName, const char* netvarName, ClientClass* clientClass)
+{
+	ClientClass* currNode = clientClass;
+
+	while (true)
+	{
+		intptr_t offset = GetOffset(currNode->m_pRecvTable, tableName, netvarName);
+
+		if (offset)
+		{
+			return offset;
+		}
+
+		if (!currNode->m_pNext)
+		{
+			break;
+		}
+
+		currNode = currNode->m_pNext;
+	}
+	return 0;
+}
+
 
 void SrcDumper::ProcessNetvars()
 {
@@ -107,22 +145,17 @@ void SrcDumper::ProcessNetvars()
 	for (size_t i = 0; i < netvars.size(); i++)
 	{
 		jsonxx::Object curr = netvars.get<jsonxx::Object>(i);
-		Netvar currData;
+		NetvarData currData;
 
-		//easy
-		currData.name = curr.get<jsonxx::String>("name");//
+		currData.name = curr.get<jsonxx::String>("name");
 		currData.prop = curr.get<jsonxx::String>("prop");
 		currData.table = curr.get<jsonxx::String>("table");
 
 		//dump offsets from json into vector
-		if (curr.has<jsonxx::Array>("offsets"))
+		if (curr.has<jsonxx::Number>("offset"))
 		{
-			jsonxx::Array offsetArray = curr.get<jsonxx::Array>("offsets");
-
-			for (size_t i = 0; i < offsetArray.size(); i++)
-			{
-				currData.offsets.push_back((int)offsetArray.get<jsonxx::Number>(i));
-			}
+			jsonxx::Number offset = curr.get<jsonxx::Number>("offset");
+			currData.offset = (int)offset;
 		}
 
 		Netvars.push_back(currData);
@@ -136,38 +169,21 @@ void SrcDumper::ProcessNetvars()
 	//Get First ClientClass in the linked list
 	ClientClass* dwGetallClassesAddr = (ClientClass*)((intptr_t)hMod + GetdwGetAllClassesAddr());
 
-	int count = 0;
 	//for each netvar in netvars, get the offset
-	for (Netvar& n : Netvars)
+	for (NetvarData& n : Netvars)
 	{
-		n.addr = GetNetVarOffset(n.table.c_str(), n.prop.c_str(), dwGetallClassesAddr);
-	}
+		n.result = GetNetVarOffset(n.table.c_str(), n.prop.c_str(), dwGetallClassesAddr);
 
-	//debug output
-	std::cout << "didn't find: " << "\n\n";
-
-	for (Netvar& n : Netvars)
-	{
-		if (n.addr == 0)
+		if (n.offset)//
 		{
-
-			std::cout << n.table << " - " << n.prop << "\n";
-			count++;
+			n.result += n.offset;
 		}
 	}
-
-	std::cout << "\ndid find: " << "\n\n";
-	for (Netvar& n : Netvars)
-	{
-		std::cout << n.table << " - " << n.prop << " - 0x" << std::hex << n.addr << "\n";
-	}
-	//end debug output
-
-	return;
 }
 
 void SrcDumper::GenerateHeaderOuput()
 {
+	//TODO: convert to string output
 	std::ofstream file;
 	file.open(jsonConfig->get<std::string>("filename") + ".h");
 
@@ -178,20 +194,125 @@ void SrcDumper::GenerateHeaderOuput()
 
 	file << "namespace offsets\n{\n";
 
-	for (auto n : Netvars)
+	file << "\n//signatures\n\n";
+
+	for (auto s : signatures)
 	{
-		file << "constexpr ptrdiff_t " << n.name << " = 0x" << std::hex << n.addr << ";\n";
+		file << "constexpr ptrdiff_t " << s.name << " = 0x" << std::uppercase << std::hex << s.result << ";\n";
 	}
 
 	file << "\n//netvars\n\n";
 
-	for (auto s : signatures)
+	for (auto n : Netvars)
 	{
-		file << "constexpr ptrdiff_t " << s.name << " = 0x" << std::hex << s.result << ";\n";
+		file << "constexpr ptrdiff_t " << n.name << " = 0x" << std::uppercase << std::hex << n.result << ";\n";
 	}
 
 	file << "\n}\n";
 
+	file.close();
+}
+
+void SrcDumper::GenerateCheatEngineOutput()
+{
+	std::string output;
+
+	//header
+	output += "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
+	output += "<CheatTable CheatEngineTableVersion=\"29\">\n";
+	output += "<CheatEntries>\n";
+
+	//Add all offsets as User Defined Symbols, these are aliases for addresses you can use throughout your table
+	output += "<UserdefinedSymbols>";
+
+	for (auto n : Netvars)
+	{
+		output += "<SymbolEntry>\n";
+		output += "<Name>" + n.name + "</Name>\n";
+		output += "<Address>";
+		output += AddrToHexString(n.result);
+		output += "</Address>\n";
+		output += "</SymbolEntry>\n";
+	}
+
+	for (auto s : signatures)
+	{
+		output += "<SymbolEntry>\n";
+		output += "<Name>" + s.name + "</Name>\n";
+		output += "<Address>";
+		output += AddrToHexString(s.result);
+		output += "</Address>\n";
+		output += "</SymbolEntry>\n";
+	}
+
+	output += "</UserdefinedSymbols>\n";
+	//end symbol output
+
+	//todo: add all vars to the cheat table in module.dll + symbol form
+	//most are offset from client base address, some from clientstate I believe
+	//most are prefixed with f, i, etc... to define the variable type, we can use substring search to pull this info maybe
+	
+	//Work In Progress: We are only adding symbol names and adding each sig/netvar as a relative offset
+	//not currently displaying correct data type and the full address, just a basic CE Table
+
+	int count = 0;
+	
+	for (auto n : Netvars)
+	{
+		std::string netvarOutput;
+
+		netvarOutput += "<CheatEntry>\n<ID>";
+		netvarOutput += std::to_string(count); //decimal
+		netvarOutput += "</ID>\n<Description>";
+		netvarOutput += n.name;
+		netvarOutput += "</Description>\n";
+		netvarOutput += n.GetCEVariableTypeString();
+
+		//netvarOutput += "<LastState/>\n<Address>client_panorama.dll + ";
+		//netvarOutput += AddrToHexString(n.result); //hex uppercase
+
+		//temporary output for basic CE table
+		netvarOutput += "<LastState/>\n<Address>" + n.name;
+
+		//end temp output
+		
+		netvarOutput += "</Address>\n</CheatEntry>\n";;
+
+		output += netvarOutput;
+		count++;
+	}
+
+	for (auto s : signatures)
+	{
+		std::string sigOutput;
+
+		sigOutput += "<CheatEntry>\n";
+		sigOutput += "<ID>" + std::to_string(count);
+		sigOutput += "</ID>\n";
+		sigOutput += "<Description>" + s.name + "</Description>\n";
+
+		//sigOutput += "<LastState/>\n";
+		//sigOutput += "<Address>client_panorama.dll + ";
+		//sigOutput += AddrToHexString(s.result);
+
+		//temporary output for basic CE table
+		sigOutput += "<LastState/>\n<Address>" + s.name;
+		//end temp output
+
+		sigOutput += "</Address>\n</CheatEntry>\n";
+
+		output += sigOutput;
+		count++;
+	}
+
+	output += "</CheatEntries>";
+
+	//footer
+	output += "</CheatTable>";
+
+	std::ofstream file;
+	file.open(jsonConfig->get<std::string>("filename") + ".CT");
+	file << output;
 	file.close();
 }
 
@@ -205,8 +326,28 @@ void SrcDumper::Dump()
 	GenerateHeaderOuput();
 
 	//Generate Cheat Engine output
+	GenerateCheatEngineOutput();
 
 	//Generate ReClass.NET output
-
-	//Write Output files
 }
+
+std::string SrcDumper::GetSigBase(SigData sigdata)
+{
+	std::string sigBase;
+
+	if (sigdata.name.find("clientstate_") != std::string::npos)
+	{
+		sigBase = "[" + sigdata.module + "dwClientState]";
+	}
+
+	else
+	{
+		sigBase = sigdata.module;
+	}
+
+	return sigBase;
+	//does sig.module define the base module of the offset as well as signature?  think so
+}
+
+//Netvar GetNetvarBase
+//if netvar.table = DT_BasePlayer or DT_CSPlayer then base address = localplayer
