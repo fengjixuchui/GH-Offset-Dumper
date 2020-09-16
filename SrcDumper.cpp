@@ -27,7 +27,7 @@ intptr_t SrcDumper::GetdwGetAllClassesAddr()
 
 HMODULE SrcDumper::LoadClientDLL(ProcEx proc)
 {
-	ModEx mod(_T("client_panorama.dll"), proc);
+	ModEx mod(_T("client.dll"), proc);
 	std::filesystem::path p(mod.modEntry.szExePath);
 
 	p = p.parent_path().parent_path().parent_path() / "bin";
@@ -133,21 +133,21 @@ void SrcDumper::GenerateHeaderOuput()
 
 	file << "namespace offsets\n{\n";
 
-	file << "\n//signatures\n\n";
+	file << "//signatures\n";
 
 	for (auto s : signatures)
 	{
 		file << "constexpr ptrdiff_t " << s.name << " = 0x" << std::uppercase << std::hex << s.result << ";\n";
 	}
 
-	file << "\n//netvars\n\n";
+	file << "\n//netvars\n";
 
 	for (auto n : Netvars)
 	{
 		file << "constexpr ptrdiff_t " << n.name << " = 0x" << std::uppercase << std::hex << n.result << ";\n";
 	}
 
-	file << "\n}\n";
+	file << "}";
 
 	file.close();
 }
@@ -158,34 +158,7 @@ void SrcDumper::GenerateCheatEngineOutput()
 
 	//header
 	output += "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
-	output += "<CheatTable CheatEngineTableVersion=\"29\">\n";
-	output += "<CheatEntries>\n";
-
-	//Add all offsets as User Defined Symbols, these are aliases for addresses you can use throughout your table
-	output += "<UserdefinedSymbols>";
-
-	for (auto n : Netvars)
-	{
-		output += "<SymbolEntry>\n";
-		output += "<Name>" + n.name + "</Name>\n";
-		output += "<Address>";
-		output += AddrToHexString(n.result);
-		output += "</Address>\n";
-		output += "</SymbolEntry>\n";
-	}
-
-	for (auto s : signatures)
-	{
-		output += "<SymbolEntry>\n";
-		output += "<Name>" + s.name + "</Name>\n";
-		output += "<Address>";
-		output += AddrToHexString(s.result);
-		output += "</Address>\n";
-		output += "</SymbolEntry>\n";
-	}
-
-	output += "</UserdefinedSymbols>\n";
-	//end symbol output
+	output += "<CheatTable CheatEngineTableVersion=\"31\">\n";
 
 	//todo: add all vars to the cheat table in module.dll + symbol form
 	//most are offset from client base address, some from clientstate I believe
@@ -196,6 +169,8 @@ void SrcDumper::GenerateCheatEngineOutput()
 
 	int count = 0;
 	
+	output += "<CheatEntries>\n";
+
 	for (auto n : Netvars)
 	{
 		std::string netvarOutput;
@@ -245,6 +220,35 @@ void SrcDumper::GenerateCheatEngineOutput()
 	}
 
 	output += "</CheatEntries>";
+	//end cheat entries output
+
+	//Add all offsets as User Defined Symbols, these are aliases for addresses you can use throughout your table
+	output += "<UserdefinedSymbols>";
+
+	for (auto n : Netvars)
+	{
+		output += "<SymbolEntry>\n";
+		output += "<Name>" + n.name + "</Name>\n";
+		output += "<Address>";
+		output += AddrToHexString(n.result);
+		output += "</Address>\n";
+		output += "</SymbolEntry>\n";
+	}
+
+	for (auto s : signatures)
+	{
+		output += "<SymbolEntry>\n";
+		output += "<Name>" + s.name + "</Name>\n";
+		output += "<Address>";
+		output += AddrToHexString(s.result);
+		output += "</Address>\n";
+		output += "</SymbolEntry>\n";
+	}
+
+	output += "</UserdefinedSymbols>\n";
+	//end symbol output
+
+
 
 	//footer
 	output += "</CheatTable>";

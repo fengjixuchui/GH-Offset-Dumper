@@ -20,14 +20,10 @@ public:
 	~IProc();
 
 	virtual bool Get() = 0;
-	virtual char* GetPEBAddr() = 0;
 };
 
 //basic functions
 DWORD GetProcId(const TCHAR* procName);
 char* GetModuleBaseAddress(const TCHAR* modName, DWORD procId);
 bool IsWow64Proc(HANDLE hProc);
-
-enum eLdrListOrder { eMemoryOrder, eLoadOrder, eInitOrder };
-
 bool SetDebugPrivilege(bool Enable);
